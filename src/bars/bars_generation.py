@@ -1,3 +1,20 @@
+import numpy as np
+import pandas as pd
+import os
+import matplotlib.pyplot as plt
+from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.graphics.tsaplots import plot_pacf
+import seaborn as sns
+import scipy.stats as stats
+
+
+def add(a, b):
+    result = a + b
+    print(f"result: {result}, {a} {b}")
+    return result
+
+
+
 def delta(df):
     a = np.diff(df['Price'])
     a = np.insert(a, 0, 0)
@@ -140,7 +157,7 @@ def dollar_bars(df, thresh):
     return pd.DataFrame(bars, columns=cols)
 
 
-
+'''
 if __name__ == '__main__':
     import numpy as np
     import pandas as pd
@@ -243,5 +260,5 @@ if __name__ == '__main__':
 
     print("Saved imbalance bars to CSV")
 
-
+'''
 
