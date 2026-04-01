@@ -1,12 +1,19 @@
 import numpy as np
 import pandas as pd
 import os
-import matplotlib.pyplot as plt
-from statsmodels.graphics.tsaplots import plot_acf
-from statsmodels.graphics.tsaplots import plot_pacf
-import seaborn as sns
 import scipy.stats as stats
 
+def ewma(arr, window):
+    if len(arr) == 0:
+        return 0
+
+    alpha = 2 / (window + 1)
+    ewma_val = arr[0]
+
+    for i in range(1, len(arr)):
+        ewma_val = alpha * arr[i] + (1 - alpha) * ewma_val
+
+    return ewma_val
 
 def delta(df):
     a = np.diff(df['Price'])
@@ -33,61 +40,116 @@ def initial_conditions(df):
     return p_b, p_s
 
 def bar_gen_run(df, thresh):
-    cumm, open, low, high, close, cumm_vol, vol_price, b, s = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-    collector, bar, thresh_buffer = [], [], []
+    pos_run = 0
+    neg_run = 0
+
+    cumm_vol = 0
+    vol_price = 0
+    collector = []
+    bars = []
 
     for i, (label, price, date, volume) in enumerate(zip(df['Label'], df['Price'], df['Date'], df['Volume'])):
-        if label == 1:
-            b = b + label
-        else:
-            s = s + label
-        theta = max(b, abs(s))
 
-        cumm_vol = cumm_vol + volume
-        vol_price = vol_price + (price * volume)
+    # accumulate buys and sells independently - never reset mid-bar
+        if label == 1:
+            pos_run += 1
+        elif label == -1:
+            neg_run += 1
+
+        theta = max(pos_run, neg_run)  # θ_T = max of both sides
+
+        cumm_vol += volume
+        vol_price += price * volume
         collector.append(price)
+
         if theta >= thresh:
-            open = collector[0]
-            high = np.max(collector)
-            low = np.min(collector)
-            close = collector[-1]
+            open_p = collector[0]
+            high_p = np.max(collector)
+            low_p = np.min(collector)
+            close_p = collector[-1]
             vwap = vol_price / cumm_vol
-            bar.append((date, i, open, low, high, close, vwap))
-            a = len(collector) * max(((b/len(collector)), (1-(b/len(collector)))))
-            thresh_buffer.append(a)
-            if i > 500000: thresh = np.average(thresh_buffer)
-            theta, open, low, high, close, cumm_vol, vol_price, b, s = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-            collector = []
-    cols = ['Date', 'Index', 'Open', 'Low', 'High', 'Close', 'Vwap']
-    run_bar = pd.DataFrame(bar, columns= cols)
-    return run_bar
 
-def bar_gen(df, thresh):
-    cumm, open, low, high, close, cumm_vol, vol_price, b = 0, 0, 0, 0, 0, 0, 0, 0
-    collector, bar, thresh_buffer = [], [], []
+            bars.append((date, i, open_p, low_p, high_p, close_p, vwap))
+
+            # RESET everything including both run counters
+            pos_run = 0
+            neg_run = 0
+            cumm_vol = 0
+            vol_price = 0
+            collector = []
+
+    cols = ['Date', 'Index', 'Open', 'Low', 'High', 'Close', 'Vwap']
+    result = pd.DataFrame(bars, columns=cols)
+    result['Date'] = pd.to_datetime(result['Date'])
+    return result
+
+def bar_gen(df, expected_num_ticks_init = 10, num_prev_bars=3):
+    cum_theta = 0
+    cumm_vol = 0
+    vol_price = 0
+
+    collector = []
+    bars = []
+
+    imbalance_array = []
+    bar_lengths = []
+
+    num_ticks = 0
+    expected_num_ticks = expected_num_ticks_init
+    expected_imbalance = 0
 
     for i, (label, price, date, volume) in enumerate(zip(df['Label'], df['Price'], df['Date'], df['Volume'])):
-        if label == 1:
-            b = b + 1
-        cumm = cumm + label
-        cumm_vol = cumm_vol + volume
-        vol_price = vol_price + (price * volume)
+
+        # θ_T = Σ b_t * v_t
+        imbalance = label * volume
+        imbalance_array.append(imbalance)
+
+        cum_theta += imbalance
+        cumm_vol += volume
+        vol_price += price * volume
         collector.append(price)
-        if abs(cumm) >= thresh:
-            open = collector[0]
-            high = np.max(collector)
-            low = np.min(collector)
-            close = collector[-1]
+
+        num_ticks += 1
+
+        # Initialize expected imbalance
+        if len(bars) == 0 and len(imbalance_array) >= expected_num_ticks_init:
+            expected_imbalance = max(
+                ewma(imbalance_array, expected_num_ticks_init),
+                1e-6
+            )
+
+        # AFML stopping condition
+        if expected_imbalance != 0 and abs(cum_theta) >= expected_num_ticks * abs(expected_imbalance):
+
+            open_p = collector[0]
+            high_p = np.max(collector)
+            low_p = np.min(collector)
+            close_p = collector[-1]
             vwap = vol_price / cumm_vol
-            bar.append((date, i, open, low, high, close, vwap))
-            a = len(collector) * abs((2*(b/len(collector)))-1)
-            thresh_buffer.append(a)
-            if i > 500000: thresh = np.average(thresh_buffer)
-            cumm, open, low, high, close, cumm_vol, vol_price, b = 0, 0, 0, 0, 0, 0, 0, 0
+
+            bars.append((date, i, open_p, low_p, high_p, close_p, vwap))
+
+            bar_lengths.append(num_ticks)
+
+            # RESET
+            cum_theta = 0
+            cumm_vol = 0
+            vol_price = 0
             collector = []
+            num_ticks = 0
+
+            # Update expectations (EWMA formulas from book)
+            expected_num_ticks = ewma(bar_lengths, num_prev_bars)
+            expected_imbalance = max(
+    ewma(
+        imbalance_array,
+        max(1, int(num_prev_bars * expected_num_ticks))
+    ),
+    1e-6
+)
+
     cols = ['Date', 'Index', 'Open', 'Low', 'High', 'Close', 'Vwap']
-    imbalance_bar = pd.DataFrame(bar, columns= cols)
-    return imbalance_bar
+    return pd.DataFrame(bars, columns=cols)
 
 def volume_bars(df, thresh):
     cumm_vol = 0
@@ -149,4 +211,124 @@ def dollar_bars(df, thresh):
     cols = ['Date', 'Index', 'Open', 'Low', 'High', 'Close', 'Vwap']
     return pd.DataFrame(bars, columns=cols)
 
+
+def tick_imbalance_bars(df, expected_num_ticks_init = 10, num_prev_bars=3):
+    cum_theta = 0
+    collector = []
+    bars = []
+
+    imbalance_array = []
+    bar_lengths = []
+
+    num_ticks = 0
+    expected_num_ticks = expected_num_ticks_init
+    expected_imbalance = 0
+
+    for i, (label, price, date) in enumerate(zip(df['Label'], df['Price'], df['Date'])):
+
+        imbalance = label  # v_t = 1
+        imbalance_array.append(imbalance)
+
+        cum_theta += imbalance
+        collector.append(price)
+        num_ticks += 1
+
+        if len(bars) == 0 and len(imbalance_array) >= expected_num_ticks_init:
+            expected_imbalance = max(
+                ewma(imbalance_array, expected_num_ticks_init),
+                1e-6
+            )
+    
+
+        if expected_imbalance != 0 and abs(cum_theta) >= expected_num_ticks * abs(expected_imbalance):
+
+            open_p = collector[0]
+            high_p = np.max(collector)
+            low_p = np.min(collector)
+            close_p = collector[-1]
+
+            bars.append((date, i, open_p, low_p, high_p, close_p))
+
+            bar_lengths.append(num_ticks)
+
+            cum_theta = 0
+            collector = []
+            num_ticks = 0
+
+            expected_num_ticks = ewma(bar_lengths, num_prev_bars)
+            expected_imbalance = max(
+    ewma(
+        imbalance_array,
+        max(1, int(num_prev_bars * expected_num_ticks))
+    ),
+    1e-6
+)
+
+    cols = ['Date', 'Index', 'Open', 'Low', 'High', 'Close']
+    return pd.DataFrame(bars, columns=cols)
+
+def time_bars(df, freq='W'):
+    df = df.copy()
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+
+    bars = df.resample(freq).agg({
+        'Price': 'last',
+        'Volume': 'sum'
+    }).dropna()
+
+    return bars.reset_index()
+
+def tick_bars(df, thresh):
+    bars = []
+    collector = []
+    cumm_vol = 0
+    vol_price = 0
+
+    for i, (price, volume, date) in enumerate(zip(df['Price'], df['Volume'], df['Date'])):
+        collector.append(price)
+        cumm_vol += volume
+        vol_price += price * volume
+
+        if len(collector) >= thresh:
+            open_p  = collector[0]
+            high_p  = np.max(collector)
+            low_p   = np.min(collector)
+            close_p = collector[-1]
+            vwap    = vol_price / cumm_vol
+
+            bars.append((date, i, open_p, low_p, high_p, close_p, vwap))
+
+            collector = []
+            cumm_vol  = 0
+            vol_price = 0
+
+    cols = ['Date', 'Index', 'Open', 'Low', 'High', 'Close', 'Vwap']
+    return pd.DataFrame(bars, columns=cols)
+
+def cusum_filter(df, h):
+    events = []         # list of dates where a signal fired
+    s_pos = 0           # S+ accumulator (tracks upward drift)
+    s_neg = 0           # S- accumulator (tracks downward drift)
+
+    # compute daily price changes
+    prices = df['Price']
+    diff = prices.diff()  # difference between each price and the previous one
+
+    for date, delta in zip(df['Date'], diff):
+        if pd.isna(delta):      # skip the first row, which has no previous price
+            continue
+
+        s_pos = max(0, s_pos + delta)   # grow upward or reset to zero
+        s_neg = min(0, s_neg + delta)   # grow downward or reset to zero
+
+        if s_pos >= h:                  # upward drift exceeded threshold
+            s_pos = 0                   # reset
+            events.append(date)         # record this date as an event
+
+        elif abs(s_neg) >= h:           # downward drift exceeded threshold
+            s_neg = 0                   # reset
+            events.append(date)         # record this date as an event
+
+    return pd.DatetimeIndex(events)
 
