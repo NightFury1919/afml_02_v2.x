@@ -25,6 +25,7 @@ def labelling(df):
     b = np.ones(len(df['Price']))
     for i, delta in enumerate(df['Delta']):
         if i > 0:
+            # Tick rule:
             if delta == 0:
                 b[i] = b[i-1]
             else:
@@ -56,7 +57,7 @@ def bar_gen_run(df, expected_num_ticks_init=10, num_prev_bars=3):
     expected_imbalance = 0
 
     for i, (label, price, date, volume) in enumerate(zip(df['Label'], df['Price'], df['Date'], df['Volume'])):
-
+        # Tick run bar definition
         if label == 1:
             pos_run += 1
         elif label == -1:
@@ -76,8 +77,8 @@ def bar_gen_run(df, expected_num_ticks_init=10, num_prev_bars=3):
                 1e-6
             )
 
-        # adaptive stopping condition from book:
-        # T* = arg min{ θ_T >= E0[T] * max{P[b_t=1], 1 - P[b_t=1]} }
+        
+        # Tick run bar stopping definition
         if expected_imbalance != 0 and theta >= expected_imbalance:
             open_p  = collector[0]
             high_p  = np.max(collector)
@@ -100,7 +101,7 @@ def bar_gen_run(df, expected_num_ticks_init=10, num_prev_bars=3):
             collector = []
             num_ticks = 0
 
-            # update expectations via EWMA
+            # Tick Run Bar expected imbalance
             expected_num_ticks = ewma(bar_lengths, num_prev_bars)
             expected_p_buy = ewma(buy_tick_proportions, num_prev_bars)
             expected_imbalance = max(
@@ -130,7 +131,7 @@ def bar_gen(df, expected_num_ticks_init = 10, num_prev_bars=3):
 
     for i, (label, price, date, volume) in enumerate(zip(df['Label'], df['Price'], df['Date'], df['Volume'])):
 
-        # θ_T = Σ b_t * v_t
+        # Volume/Dollar imbalance accumulation: the imbalance = and cum_theta += imbalance
         imbalance = label * volume
         imbalance_array.append(imbalance)
 
@@ -148,7 +149,7 @@ def bar_gen(df, expected_num_ticks_init = 10, num_prev_bars=3):
                 1e-6
             )
 
-        # AFML stopping condition
+        # V/D Imbalance Bar stopping rule if statement
         if expected_imbalance != 0 and abs(cum_theta) >= expected_num_ticks * abs(expected_imbalance):
 
             open_p = collector[0]
@@ -168,7 +169,7 @@ def bar_gen(df, expected_num_ticks_init = 10, num_prev_bars=3):
             collector = []
             num_ticks = 0
 
-            # Update expectations (EWMA formulas from book)
+            # V/D Expected Imbalance Equation, from here until 1e-6
             expected_num_ticks = ewma(bar_lengths, num_prev_bars)
             expected_imbalance = max(
     ewma(
@@ -257,7 +258,7 @@ def tick_imbalance_bars(df, expected_num_ticks_init = 10, num_prev_bars=3):
     expected_imbalance = 0
 
     for i, (label, price, date) in enumerate(zip(df['Label'], df['Price'], df['Date'])):
-
+        # Tick Imbalance Accumulation:
         imbalance = label  # v_t = 1
         imbalance_array.append(imbalance)
 
@@ -271,7 +272,7 @@ def tick_imbalance_bars(df, expected_num_ticks_init = 10, num_prev_bars=3):
                 1e-6
             )
     
-
+        #Tick Imbalance Bar stopping formula: this if statement is the formula
         if expected_imbalance != 0 and abs(cum_theta) >= expected_num_ticks * abs(expected_imbalance):
 
             open_p = collector[0]
@@ -350,7 +351,7 @@ def cusum_filter(df, h):
     for date, delta in zip(df['Date'], diff):
         if pd.isna(delta):      # skip the first row, which has no previous price
             continue
-
+        # Symmetric CUSUM Filter
         s_pos = max(0, s_pos + delta)   # grow upward or reset to zero
         s_neg = min(0, s_neg + delta)   # grow downward or reset to zero
 
@@ -385,7 +386,7 @@ def volume_run_bars(df, expected_num_ticks_init=10, num_prev_bars=3):
 
     for i, (label, price, date, volume) in enumerate(zip(df['Label'], df['Price'], df['Date'], df['Volume'])):
 
-        # accumulate volume on each side independently
+        # Volume/Dollar Run Bar length definition
         if label == 1:
             pos_run += volume   # Σ b_t*v_t where b_t=1
         elif label == -1:
@@ -409,8 +410,8 @@ def volume_run_bars(df, expected_num_ticks_init=10, num_prev_bars=3):
                 1e-6
             )
 
-        # stopping condition:
-        # T* = arg min{ θ_T >= E0[T] * max{P[b_t=1]*E0[v_t|b_t=1], (1-P[b_t=1])*E0[v_t|b_t=-1]} }
+        
+        # Volume/Dollar Run Bar stopping rule
         if expected_imbalance != 0 and theta >= expected_imbalance:
             open_p  = collector[0]
             high_p  = np.max(collector)
@@ -433,7 +434,7 @@ def volume_run_bars(df, expected_num_ticks_init=10, num_prev_bars=3):
             collector = []
             num_ticks = 0
 
-            # update expectations via EWMA
+            # Volume/Dollar Run Bar expected imbalance 
             expected_num_ticks = ewma(bar_lengths, num_prev_bars)
             expected_p_buy = ewma([b / (b + s) if (b + s) > 0 else 0.5
                                    for b, s in zip(buy_vol_proportions, sell_vol_proportions)],
