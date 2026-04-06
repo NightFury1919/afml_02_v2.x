@@ -7,6 +7,7 @@ import seaborn as sns
 import scipy.stats as stats
 
 # --- Data Generation ---
+np.random.seed(42)
 n = 500
 df = pd.DataFrame({
     "Date": pd.date_range(start="2020-01-01", periods=n),
@@ -16,10 +17,10 @@ df = pd.DataFrame({
 
 df['Dollar'] = df['Price'] * df['Volume']
 df = bars.delta(df)
-df = bars.labelling(df)
+df = bars.tick_rule(df)
 
 # --- Initial Conditions ---
-p_b, p_s = bars.initial_conditions(df)
+p_b, p_s = bars.estimate_buy_sell_probs(df)
 
 # --- CUSUM Filter ---
 h = 2
@@ -34,9 +35,9 @@ volume_bar      = bars.volume_bars(df, thresh=200)
 dollar_bar      = bars.dollar_bars(df, thresh=10000)
 
 # --- Information-Driven Bars ---
-tick_imbalance_bar  = bars.tick_imbalance_bars(df, expected_num_ticks_init=10)
-imbalance_bar       = bars.bar_gen(df, expected_num_ticks_init=50)
-run_bar             = bars.bar_gen_run(df, expected_num_ticks_init=10)
+tick_imbalance_bar  = bars.tick_imbalance_bars(df, expected_num_ticks_init=5)
+imbalance_bar       = bars.volume_imbalance_bars(df, expected_num_ticks_init=10)
+run_bar             = bars.tick_run_bars(df, expected_num_ticks_init=10)
 volume_run_bar      = bars.volume_run_bars(df, expected_num_ticks_init=10)
 
 # --- Print all bars ---
