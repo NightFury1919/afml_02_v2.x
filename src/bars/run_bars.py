@@ -17,8 +17,8 @@ def volume_run_bars(df, expected_num_ticks_init=10, num_prev_bars=3):
 
     expected_num_ticks = expected_num_ticks_init
     expected_p_buy = 0.5
-    expected_buy_vol = 25.0   # initial guess for avg buy volume
-    expected_sell_vol = 25.0  # initial guess for avg sell volume
+    expected_buy_vol = 0.01    # more realistic for BTC
+    expected_sell_vol = 0.01   # more realistic for BTC
     expected_imbalance = 0
 
     for i, (label, price, date, volume) in enumerate(zip(df['Label'], df['Price'], df['Date'], df['Volume'])):

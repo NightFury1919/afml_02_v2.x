@@ -106,29 +106,40 @@ print("\nNon-negative rolled prices (first 10 rows):")
 print(non_neg[['Close', 'Returns', 'rPrices']].head(10))
 
 # --- Plots ---
-fig, axes = plt.subplots(3, 1, figsize=(12, 14))
-fig.suptitle("Chapter 2.4 - Multi-Product Series", fontsize=14, y=0.98)
-
+fig, axes = plt.subplots(4, 1, figsize=(12, 18))
+fig.suptitle("Chapter 2.4 — Dealing with Multi-Product Series", fontsize=14, y=0.98)
 # Plot 1: ETF Trick portfolio value
 axes[0].plot(result.index, result['K'], color='blue')
-axes[0].set_title("ETF Trick — $1 Investment Value (K_t)")
+axes[0].set_title("ETF Trick: Portfolio Value of $1 Invested Across 3 Instruments (Section 2.4.1)")
 axes[0].set_xlabel("Date")
 axes[0].set_ylabel("Portfolio Value ($)")
 
 # Plot 2: Raw vs rolled futures prices
 axes[1].plot(futures_df.index, futures_df['Close'], color='red', label='Raw prices')
 axes[1].plot(rolled.index, rolled['Close'], color='green', label='Rolled prices')
-axes[1].set_title("Single Future Roll — Raw vs Rolled Prices")
+axes[1].set_title("Single Future Roll: Removing Artificial Price Jumps at Contract Expiry (Section 2.4.3)")
 axes[1].set_xlabel("Date")
 axes[1].set_ylabel("Price")
-axes[1].legend()
+axes[1].legend(loc='center left', bbox_to_anchor=(1, 0.5))
 axes[1].set_ylim(90, 110)
 
 # Plot 3: Non-negative rolled price series
 axes[2].plot(non_neg.index, non_neg['rPrices'], color='purple')
-axes[2].set_title("Non-Negative Rolled Price Series ($1 Investment)")
+axes[2].set_title("Single Future Roll: $1 Investment Value After Roll Correction (Section 2.4.3)")
 axes[2].set_xlabel("Date")
 axes[2].set_ylabel("Value ($)")
 
-plt.subplots_adjust(hspace=0.5)
+# Plot 4: PCA Weights
+weight_values = weights.flatten()
+colors = ['green' if w > 0 else 'red' for w in weight_values]
+axes[3].bar(instruments, weight_values, color=colors)
+axes[3].axhline(y=0, color='black', linewidth=0.8)
+axes[3].set_title("PCA Weights: Optimal Risk-Balanced Allocation Across Instruments (Section 2.4.2)")
+axes[3].set_xlabel("Instrument")
+axes[3].set_ylabel("Weight")
+for i, w in enumerate(weight_values):
+    y_pos = w / 2  # center of the bar
+    axes[3].text(i, y_pos, f'{w:.2f}', ha='center', va='center', fontsize=9, color='white', fontweight='bold')
+
+plt.subplots_adjust(hspace=0.8, right=0.85)
 plt.show()
