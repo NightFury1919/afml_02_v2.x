@@ -154,53 +154,57 @@ print(rolled.head(10))
 print("\nNon-negative rolled prices (first 10 rows):")
 print(non_neg[['Close', 'Returns', 'rPrices']].head(10))
 
-# --- Plots ---
-fig, axes = plt.subplots(4, 1, figsize=(14, 20))
-fig.suptitle("Chapter 2.4 — Multi-Product Series (Real S&P 500 Futures Data)",
-             fontsize=14, y=0.95)
+# --- Figure 1: Price Series ---
+fig1, axes1 = plt.subplots(3, 1, figsize=(14, 14))
+fig1.suptitle("Chapter 2.4 — Multi-Product Series (Real S&P 500 Futures Data)",
+              fontsize=14, y=0.98)
 
-# Plot 1: ETF Trick
-axes[0].plot(result.index, result['K'], color='blue')
-axes[0].set_title("ETF Trick: $1 Investment Value Across 3 S&P 500 Futures Contracts (Section 2.4.1)")
-axes[0].set_xlabel("Date")
-axes[0].set_ylabel("Portfolio Value ($)")
-axes[0].tick_params(axis='x', rotation=45)
+axes1[0].plot(result.index, result['K'], color='blue')
+axes1[0].set_title("ETF Trick: $1 Investment Value Across 3 S&P 500 Futures Contracts (Section 2.4.1)")
+axes1[0].set_xlabel("Date")
+axes1[0].set_ylabel("Portfolio Value ($)")
+axes1[0].tick_params(axis='x', rotation=45)
 
-# Plot 2: Raw vs Rolled prices
-axes[1].plot(futures_series.index, futures_series['Close'],
-             color='red', label='Raw prices', linewidth=0.8)
-axes[1].plot(rolled.index, rolled['Close'],
-             color='green', label='Rolled prices', linewidth=0.8)
-axes[1].set_title("Single Future Roll: Raw vs Rolled S&P 500 Futures Prices (Section 2.4.3)")
-axes[1].set_xlabel("Date")
-axes[1].set_ylabel("Price")
-axes[1].legend(loc='center left', bbox_to_anchor=(1, 0.5))
-axes[1].tick_params(axis='x', rotation=45)
+axes1[1].plot(futures_series.index, futures_series['Close'],
+              color='red', label='Raw prices', linewidth=0.8)
+axes1[1].plot(rolled.index, rolled['Close'],
+              color='green', label='Rolled prices', linewidth=0.8)
+axes1[1].set_title("Single Future Roll: Raw vs Rolled S&P 500 Futures Prices (Section 2.4.3)")
+axes1[1].set_xlabel("Date")
+axes1[1].set_ylabel("Price")
+axes1[1].legend(loc='upper left')
+axes1[1].tick_params(axis='x', rotation=45)
 
-# Plot 3: Non-negative rolled prices
-axes[2].plot(non_neg.index, non_neg['rPrices'], color='purple', linewidth=0.8)
-axes[2].set_title("Single Future Roll: $1 Investment Value After Roll Correction (Section 2.4.3)")
-axes[2].set_xlabel("Date")
-axes[2].set_ylabel("Value ($)")
-axes[2].tick_params(axis='x', rotation=45)
+axes1[2].plot(non_neg.index, non_neg['rPrices'], color='purple', linewidth=0.8)
+axes1[2].set_title("Single Future Roll: $1 Investment Value After Roll Correction (Section 2.4.3)")
+axes1[2].set_xlabel("Date")
+axes1[2].set_ylabel("Value ($)")
+axes1[2].tick_params(axis='x', rotation=45)
 
-# Plot 4: PCA Weights
+plt.subplots_adjust(hspace=0.9, top=0.91, bottom=0.12)
+plt.show()
+
+# --- Figure 2: PCA Weights ---
+fig2, ax2 = plt.subplots(figsize=(10, 6))
+fig2.suptitle("Chapter 2.4 — PCA Weights: Risk-Balanced Allocation\nAcross 3 S&P 500 Futures Contracts (Section 2.4.2)", 
+              fontsize=12, y=0.98)
+ax2.set_title("")  # no subplot title, everything in suptitle
 weight_values = weights.flatten()
 colors = ['green' if w > 0 else 'red' for w in weight_values]
-axes[3].bar(instruments, weight_values, color=colors)
-axes[3].axhline(y=0, color='black', linewidth=0.8)
-axes[3].set_title("PCA Weights: Risk-Balanced Allocation Across 3 Contracts (Section 2.4.2)")
-axes[3].set_xlabel("Instrument")
-axes[3].set_ylabel("Weight")
-for i, w in enumerate(weight_values):
-    if abs(w) > 100:  # large enough to put text inside
-        y_pos = w / 2
-        axes[3].text(i, y_pos, f'{w:.2f}', ha='center', va='center',
-                     fontsize=9, color='white', fontweight='bold')
-    else:  # too small, put text above/below the bar
-        offset = 150 if w >= 0 else -300
-        axes[3].text(i, w + offset, f'{w:.2f}', ha='center', va='center',
-                     fontsize=9, color='black', fontweight='bold')
+bars = ax2.bar(instruments, weight_values, color=colors, width=0.5)
+ax2.axhline(y=0, color='black', linewidth=0.8)
+ax2.set_xlabel("Instrument")
+ax2.set_ylabel("Weight")
 
-plt.subplots_adjust(hspace=1.2, right=0.85, top=0.88)
+for i, w in enumerate(weight_values):
+    if abs(w) > 500:
+        y_pos = w / 2   
+        ax2.text(i, y_pos, f'{w:.2f}', ha='center', va='center',
+                 fontsize=11, color='white', fontweight='bold')
+    else:
+        offset = 200 if w >= 0 else -400
+        ax2.text(i, w + offset, f'{w:.2f}', ha='center', va='center',
+                 fontsize=11, color='black', fontweight='bold')
+        
+plt.tight_layout()
 plt.show()
