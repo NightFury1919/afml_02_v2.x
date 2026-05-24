@@ -68,6 +68,7 @@ print(f"Loaded {len(df)} trades")
 print(f"Date range: {df['Date'].iloc[0]} to {df['Date'].iloc[-1]}")
 print(f"Price range: ${df['Price'].min():.2f} to ${df['Price'].max():.2f}")
 print()
+df.head()
 
 # =============================================================================
 # Standard Bars

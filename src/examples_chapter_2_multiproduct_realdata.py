@@ -92,8 +92,11 @@ open_prices = pd.DataFrame({
 
 # Align open_prices to exactly the same rows as close_prices
 common_idx  = close_prices.index
-open_prices = open_prices.loc[common_idx]
-n_bars      = len(close_prices)
+common_idx  = common_idx[common_idx >= '1998-01-01']
+
+close_prices = close_prices.loc[common_idx]   # ← filter close_prices too
+open_prices  = open_prices.loc[common_idx]
+n_bars       = len(close_prices)              # ← now correct
 
 print(f"Common bars across all 3 contracts: {n_bars}")
 print(f"Date range: {common_idx[0]} to {common_idx[-1]}")
