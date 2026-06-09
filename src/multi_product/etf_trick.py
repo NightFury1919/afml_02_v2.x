@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-def etf_trick(open_prices, close_prices, alloc_weights, point_values, dividends, rebalance_dates, trans_costs=None):
+def etf_trick(open_prices, close_prices, alloc_weights, point_values, dividends, rebalance_dates, trans_costs=None, volumes=None):
     # ETF Trick — AFML Chapter 2, Section 2.4.1, pages 33-34
     #
     # Converts a basket of multiple instruments into a single continuous
@@ -41,32 +41,16 @@ def etf_trick(open_prices, close_prices, alloc_weights, point_values, dividends,
     # rebalance_dates : list of dates when the portfolio is rebalanced to target weights
     # trans_costs     : Series (I,) — τ_i: transaction cost per dollar of notional
     #                   (e.g. 1e-4 = 1 basis point)
+    # volumes         : DataFrame (T × I) — actual traded volume for each instrument each day
+    #                   Used to compute tradeable volume v_t. If None, close_prices is used
+    #                   as a proxy (not recommended).
     #
     # --- Output ---
     # DataFrame with columns:
     #   K              — portfolio value (starts at $1, grows/shrinks with P&L)
     #   rebalance_cost — transaction cost of rebalancing on that date
-    #   bid_ask_cost   — cost of trading one unit of the virtual ETF
+    #   bid_ask_cost   — cost of trading one unit of the virtual ETF (computed every bar)
     #   volume         — tradeable size limited by least liquid instrument
-    #
-    # Three core formulas from page 34:
-    #
-    # Holdings h_i,t:
-    #   h_i,t = (ω_i,t * K_t) / (o_i,t+1 * φ_i,t * Σ|ω_i,t|)   if t ∈ B (rebalance)
-    #   h_i,t = h_i,t-1                                            otherwise
-    #
-    # Price change δ_i,t:
-    #   δ_i,t = p_i,t - o_i,t    if (t-1) ∈ B (first bar after rebalance)
-    #   δ_i,t = Δp_i,t           otherwise (day-to-day change)
-    #
-    # Portfolio value K_t:
-    #   K_t = K_{t-1} + Σ_i h_{i,t-1} * φ_{i,t} * (δ_{i,t} + d_{i,t})
-    #   K_0 = 1 (start with $1)
-    #
-    # Three auxiliary outputs also from page 34:
-    #   Rebalance cost: c_t  = Σ (|h_{i,t-1}|*p_{i,t} + |h_{i,t}|*o_{i,t+1}) * φ_{i,t} * τ_i
-    #   Bid-ask cost:   c~_t = Σ |h_{i,t-1}| * p_{i,t} * φ_{i,t} * τ_i
-    #   Volume:         v_t  = min_i { v_{i,t} / |h_{i,t-1}| }
 
     T, I = close_prices.shape   # T = number of time bars, I = number of instruments
     bars = close_prices.index   # the datetime index (one entry per trading day)
@@ -81,6 +65,9 @@ def etf_trick(open_prices, close_prices, alloc_weights, point_values, dividends,
     # Default to zero transaction costs if not provided
     if trans_costs is None:
         trans_costs = pd.Series(0.0, index=close_prices.columns)
+
+    # Use real volume data if provided, otherwise fall back to close prices as proxy
+    volume_data = volumes if volumes is not None else close_prices
 
     K.iloc[0] = 1.0     # K_0 = $1 — we start with a $1 investment on day 0
 
@@ -149,29 +136,26 @@ def etf_trick(open_prices, close_prices, alloc_weights, point_values, dividends,
         K.iloc[t_idx] = K.iloc[t_idx - 1] + pnl
 
         # -----------------------------------------------------------------------
-        # Step 4: Transaction costs (page 34) — computed only on rebalance dates
+        # Step 4: Transaction costs (page 34)
         # -----------------------------------------------------------------------
         if t_prev in rebalance_dates:
             # Rebalance cost c_t: total cost of CLOSING old positions AND OPENING new ones.
-            # We pay transaction costs on both the outgoing and incoming trades.
+            # Only charged on rebalance days since that's when trades actually happen.
             # c_t = Σ_i (|h_{i,t-1}|*p_{i,t} + |h_{i,t}|*o_{i,t+1}) * φ_{i,t} * τ_i
-            #
-            # |h_{i,t-1}|*p_{i,t} = notional value of position being closed at today's close
-            # |h_{i,t}|*o_{i,t+1} = notional value of new position opened at today's open
-            # τ_i = round-trip transaction cost rate for instrument i
             rebalance_cost.loc[t] = (
                 (h.loc[t_prev].abs() * close_prices.loc[t] +
                  h.loc[t].abs()      * open_prices.loc[t]) *
                 point_values.loc[t] * trans_costs
             ).sum()
 
-            # Bid-ask cost c~_t: cost of transacting ONE unit of the virtual ETF.
-            # Useful for computing the effective bid-ask spread of the synthetic product.
-            # c~_t = Σ_i |h_{i,t-1}| * p_{i,t} * φ_{i,t} * τ_i
-            bid_ask_cost.loc[t] = (
-                h.loc[t_prev].abs() * close_prices.loc[t] *
-                point_values.loc[t] * trans_costs
-            ).sum()
+        # Bid-ask cost c~_t: computed EVERY bar, not just on rebalance days.
+        # This represents the implicit cost of holding positions — if you had to
+        # exit right now, what would you lose to the bid-ask spread?
+        # c~_t = Σ_i |h_{i,t-1}| * p_{i,t} * φ_{i,t} * τ_i
+        bid_ask_cost.loc[t] = (
+            h.loc[t_prev].abs() * close_prices.loc[t] *
+            point_values.loc[t] * trans_costs
+        ).sum()
 
         # -----------------------------------------------------------------------
         # Step 5: Tradeable volume v_t (page 34)
@@ -179,26 +163,16 @@ def etf_trick(open_prices, close_prices, alloc_weights, point_values, dividends,
         # v_t = min_i { v_{i,t} / |h_{i,t-1}| }
         #
         # How many units of the ETF can we actually trade, given the liquidity
-        # of each underlying instrument? If we hold h units of instrument i
-        # and the market can absorb v_{i,t} units of instrument i today, then
-        # we can trade at most v_{i,t} / |h_i| ETF units via instrument i.
-        #
-        # We take the MINIMUM across instruments because the least liquid
-        # instrument is the binding constraint — we can only trade as much
-        # as the tightest bottleneck allows.
-        #
-        # Note: close_prices is used here as a proxy for available volume
-        # (in the simplified implementation — in a full version this would
-        # be actual market depth or traded volume data).
+        # of each underlying instrument? We use real volume data if provided,
+        # otherwise fall back to close prices as a rough proxy.
         h_prev_abs = h.loc[t_prev].abs()
         if (h_prev_abs > 0).any():      # avoid division by zero if holding nothing
-            volume.loc[t] = (close_prices.loc[t] / h_prev_abs.replace(0, np.nan)).min()
-            # replace(0, nan) prevents division by zero for instruments with h=0
+            volume.loc[t] = (volume_data.loc[t] / h_prev_abs.replace(0, np.nan)).min()
 
     result = pd.DataFrame({
         'K':               K,               # portfolio value ($1 start)
-        'rebalance_cost':  rebalance_cost,  # transaction cost on rebalance days
-        'bid_ask_cost':    bid_ask_cost,    # cost to trade one ETF unit
+        'rebalance_cost':  rebalance_cost,  # transaction cost on rebalance days only
+        'bid_ask_cost':    bid_ask_cost,    # spread cost every bar
         'volume':          volume           # tradeable units limited by least liquid leg
     })
 

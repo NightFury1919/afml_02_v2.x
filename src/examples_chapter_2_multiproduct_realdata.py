@@ -90,12 +90,23 @@ open_prices = pd.DataFrame({
     'SP98U': sp98u_aligned['Open']
 }).dropna()
 
+# --- Volume data ---
+# Real traded volume for each contract, used to compute tradeable volume v_t.
+# This tells us how many contracts were traded each day — used instead of
+# close prices as a proxy, giving a much more realistic liquidity estimate.
+volumes = pd.DataFrame({
+    'SP98H': sp98h_aligned['Volume'],
+    'SP98M': sp98m_aligned['Volume'],
+    'SP98U': sp98u_aligned['Volume']
+}).dropna()
+
 # Align open_prices to exactly the same rows as close_prices
 common_idx  = close_prices.index
 common_idx  = common_idx[common_idx >= '1998-01-01']
 
 close_prices = close_prices.loc[common_idx]   # ← filter close_prices too
 open_prices  = open_prices.loc[common_idx]
+volumes      = volumes.loc[common_idx]        # ← filter volumes too
 n_bars       = len(close_prices)              # ← now correct
 
 print(f"Common bars across all 3 contracts: {n_bars}")
@@ -180,9 +191,21 @@ result = mp.etf_trick(
     point_values    = point_values,
     dividends       = dividends,
     rebalance_dates = rebalance_dates,
-    trans_costs     = trans_costs
+    trans_costs     = trans_costs,
+    volumes         = volumes       # real traded volume for liquidity calculation
 )
 print(result.head(10))
+print("""
+--- ETF Trick Output Notes ---
+K:              Portfolio value starting at $1. Rises and falls with daily P&L across all three contracts.
+rebalance_cost: Transaction cost paid on rebalance days only (~every 63 bars). Zero on all other days.
+bid_ask_cost:   Implicit spread cost of holding positions, computed every bar. Small (~0.0001) because
+                S&P 500 futures are highly liquid with tight spreads.
+volume:         How many units of the virtual ETF could be traded today, limited by the least liquid
+                instrument. Large values reflect that our $1 portfolio is tiny relative to market
+                liquidity — the market could absorb far more. In a real deployment with a larger
+                portfolio, this number would shrink proportionally.
+""")
 
 # =============================================================================
 # Section 2.4.3: Single Future Roll (Roll Gap Correction)
@@ -230,7 +253,7 @@ futures_series = futures_series.set_index('Date')   # set date as index for roll
 
 print(f"Stitched futures series: {len(futures_series)} bars")
 print(f"Date range: {futures_series.index[0]} to {futures_series.index[-1]}")
-print(f"Contracts used: {futures_series['Instrument'].unique()}")
+print(f"Contracts used: {futures_series['Instrument'].unique().tolist()}")
 
 # --- Apply roll gap correction ---
 # dictio maps the column names our roll functions expect to the actual column names in the data
@@ -245,7 +268,7 @@ rolled  = mp.get_rolled_series(futures_series, dictio=dictio, match_end=True)
 non_neg = mp.non_negative_rolled_prices(futures_series, dictio=dictio, match_end=True)
 
 print("\nRolled series (first 10 rows):")
-print(rolled.head(10))
+print(rolled[["Open", "Close", "Volume", "Instrument"]].head(10))
 print("\nNon-negative rolled prices (first 10 rows):")
 print(non_neg[['Close', 'Returns', 'rPrices']].head(10))
 
@@ -321,5 +344,29 @@ for i, w in enumerate(weight_values):
         ax2.text(i, w + offset, f'{w:.2f}', ha='center', va='center',
                  fontsize=11, color='black', fontweight='bold')
 
+# Add strategy explanation text box
+explanation = (
+    "Strategy: Relative Value\n"
+    "This portfolio does not bet on the S&P 500 going up or down.\n"
+    "It bets on June (SP98M) outperforming March and September.\n\n"
+    "Why long/short? The PCA formula found that all three contracts\n"
+    "move together — so the only independent risk comes from the\n"
+    "spread between them. The eigenvector for the smallest risk\n"
+    "component has a positive sign for June and negative signs for\n"
+    "March and September, so the math naturally produces this\n"
+    "long/short structure to extract that spread.\n\n"
+    "Risk profile: Low market risk (positions mostly cancel out).\n"
+    "Sensitive to small pricing differences between contracts."
+)
+ax2.text(
+    0.5, -0.28, explanation,
+    transform=ax2.transAxes,
+    fontsize=9,
+    verticalalignment='top',
+    horizontalalignment='center',
+    bbox=dict(boxstyle='round,pad=0.6', facecolor='#F4F6FA', edgecolor='#1B2A4A', linewidth=1.2)
+)
+
 plt.tight_layout()
+plt.subplots_adjust(bottom=0.38)
 plt.show()
